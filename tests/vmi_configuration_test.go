@@ -22,6 +22,7 @@ package tests_test
 import (
 	"bufio"
 	"context"
+	"encoding/xml"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -65,6 +66,7 @@ import (
 	"kubevirt.io/client-go/kubecli"
 	"kubevirt.io/client-go/log"
 
+	"kubevirt.io/kubevirt/pkg/downwardmetrics"
 	kubevirt_hooks_v1alpha2 "kubevirt.io/kubevirt/pkg/hooks/v1alpha2"
 	"kubevirt.io/kubevirt/pkg/testutils"
 	"kubevirt.io/kubevirt/pkg/util/cluster"
@@ -286,6 +288,49 @@ var _ = Describe("[sig-compute]Configurations", decorators.SigCompute, func() {
 				64,
 			),
 		)
+
+		Context("with downwardMetrics", func() {
+			It("exposed via virtio-serial", func() {
+				const (
+					expectedType       = "unix"
+					expectedMode       = "bind"
+					expectedPath       = downwardmetrics.DownwardMetricsChannelSocket
+					expectedTargetType = v1.VirtIO
+					expectedTargetName = downwardmetrics.DownwardMetricsSerialDeviceName
+				)
+
+				vmi := libvmi.NewCirros(libvmi.WithDownwardMetricsChannel())
+
+				vmi = tests.RunVMIAndExpectLaunch(vmi, 60)
+				libwait.WaitForSuccessfulVMIStart(vmi)
+
+				domXml, err := tests.GetRunningVirtualMachineInstanceDomainXML(virtClient, vmi)
+				Expect(err).ToNot(HaveOccurred())
+
+				var actualXML api.DomainSpec
+				err = xml.Unmarshal([]byte(domXml), &actualXML)
+				Expect(err).ToNot(HaveOccurred())
+
+				//Let's find the downwardMetrics channel index
+				i := 0
+				found := false
+				for j, channel := range actualXML.Devices.Channels {
+					if channel.Target.Name == expectedTargetName {
+						found = true
+						i = j
+						break
+					}
+				}
+				By("Check if the downwardMetric channel is present in the libvirt xml")
+				Expect(found).To(BeTrue())
+
+				Expect(expectedType).To(Equal(actualXML.Devices.Channels[i].Type))
+				Expect(expectedMode).To(Equal(actualXML.Devices.Channels[i].Source.Mode))
+				Expect(expectedPath).To(Equal(actualXML.Devices.Channels[i].Source.Path))
+				Expect(expectedTargetType).To(Equal(actualXML.Devices.Channels[i].Target.Type))
+				Expect(expectedTargetName).To(Equal(actualXML.Devices.Channels[i].Target.Name))
+			})
+		})
 
 		Context("[Serial][rfe_id:2065][crit:medium][vendor:cnv-qe@redhat.com][level:component]with 3 CPU cores", Serial, func() {
 			var availableNumberOfCPUs int
