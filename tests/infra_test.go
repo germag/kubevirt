@@ -214,14 +214,33 @@ var _ = Describe("[Serial][sig-compute]Infrastructure", Serial, decorators.SigCo
 			vmi = tests.RunVMIAndExpectLaunch(vmi, 180)
 			Expect(console.LoginToFedora(vmi)).To(Succeed())
 
-			metrics, err := getDownwardMetrics(vmi)
+			metrics, err := getDownwardMetricsDisk(vmi)
 			Expect(err).ToNot(HaveOccurred())
 			timestamp := getTimeFromMetrics(metrics)
 
 			vmi, err = virtClient.VirtualMachineInstance(vmi.Namespace).Get(context.Background(), vmi.Name, &metav1.GetOptions{})
 			Expect(err).ToNot(HaveOccurred())
 			Eventually(func() int {
-				metrics, err = getDownwardMetrics(vmi)
+				metrics, err = getDownwardMetricsDisk(vmi)
+				Expect(err).ToNot(HaveOccurred())
+				return getTimeFromMetrics(metrics)
+			}, 10*time.Second, 1*time.Second).ShouldNot(Equal(timestamp))
+			Expect(getHostnameFromMetrics(metrics)).To(Equal(vmi.Status.NodeName))
+		})
+
+		It("should be accessible through a virtio serial device", func() {
+			vmi := libvmi.NewFedora(libvmi.WithDownwardMetricsChannel())
+			vmi = tests.RunVMIAndExpectLaunch(vmi, 180)
+			Expect(console.LoginToFedora(vmi)).To(Succeed())
+
+			metrics, err := getDownwardMetricsVirtio(vmi)
+			Expect(err).ToNot(HaveOccurred())
+			timestamp := getTimeFromMetrics(metrics)
+
+			vmi, err = virtClient.VirtualMachineInstance(vmi.Namespace).Get(context.Background(), vmi.Name, &metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			Eventually(func() int {
+				metrics, err = getDownwardMetricsVirtio(vmi)
 				Expect(err).ToNot(HaveOccurred())
 				return getTimeFromMetrics(metrics)
 			}, 10*time.Second, 1*time.Second).ShouldNot(Equal(timestamp))
@@ -234,7 +253,7 @@ var _ = Describe("[Serial][sig-compute]Infrastructure", Serial, decorators.SigCo
 			vmi = tests.RunVMIAndExpectLaunch(vmi, 180)
 			Expect(console.LoginToFedora(vmi)).To(Succeed())
 
-			metrics, err := getDownwardMetrics(vmi)
+			metrics, err := getDownwardMetricsDisk(vmi)
 			Expect(err).ToNot(HaveOccurred())
 
 			//let's try to find the ResourceProcessorLimit metric
@@ -1968,9 +1987,19 @@ func getMetricKeyForVmiDisk(keys []string, vmiName string, diskName string) stri
 	return ""
 }
 
-func getDownwardMetrics(vmi *v1.VirtualMachineInstance) (*api.Metrics, error) {
+func getDownwardMetricsDisk(vmi *v1.VirtualMachineInstance) (*api.Metrics, error) {
+	cmd := `sudo vm-dump-metrics 2> /dev/null`
+	return runAndCheckDumpMetrics(vmi, cmd)
+}
+
+func getDownwardMetricsVirtio(vmi *v1.VirtualMachineInstance) (*api.Metrics, error) {
+	cmd := `sudo vm-dump-metrics --virtio 2> /dev/null`
+	return runAndCheckDumpMetrics(vmi, cmd)
+}
+
+func runAndCheckDumpMetrics(vmi *v1.VirtualMachineInstance, cmd string) (*api.Metrics, error) {
 	res, err := console.SafeExpectBatchWithResponse(vmi, []expect.Batcher{
-		&expect.BSnd{S: `sudo vm-dump-metrics 2> /dev/null` + "\n"},
+		&expect.BSnd{S: cmd + "\n"},
 		&expect.BExp{R: `(?s)(<metrics>.+</metrics>)`},
 	}, 5)
 	if err != nil {

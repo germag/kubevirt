@@ -983,14 +983,49 @@ var _ = Describe("[rfe_id:393][crit:high][vendor:cnv-qe@redhat.com][level:system
 
 				By("checking if the metrics are still updated after the migration")
 				Eventually(func() error {
-					_, err := getDownwardMetrics(vmi)
+					_, err := getDownwardMetricsDisk(vmi)
 					return err
 				}, 20*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
-				metrics, err := getDownwardMetrics(vmi)
+				metrics, err := getDownwardMetricsDisk(vmi)
 				Expect(err).ToNot(HaveOccurred())
 				timestamp := getTimeFromMetrics(metrics)
 				Eventually(func() int {
-					metrics, err := getDownwardMetrics(vmi)
+					metrics, err := getDownwardMetricsDisk(vmi)
+					Expect(err).ToNot(HaveOccurred())
+					return getTimeFromMetrics(metrics)
+				}, 10*time.Second, 1*time.Second).ShouldNot(Equal(timestamp))
+
+				By("checking that the new nodename is reflected in the downward metrics")
+				vmi, err = virtClient.VirtualMachineInstance(vmi.Namespace).Get(context.Background(), vmi.Name, &metav1.GetOptions{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(getHostnameFromMetrics(metrics)).To(Equal(vmi.Status.NodeName))
+			})
+
+			It("should migrate with a downwardMetrics channel", func() {
+				vmi := libvmi.NewFedora(
+					libvmi.WithInterface(libvmi.InterfaceDeviceWithMasqueradeBinding()),
+					libvmi.WithNetwork(v1.DefaultPodNetwork()),
+					libvmi.WithDownwardMetricsChannel(),
+				)
+				vmi = tests.RunVMIAndExpectLaunch(vmi, 180)
+				Expect(console.LoginToFedora(vmi)).To(Succeed())
+
+				By("starting the migration")
+				migration := tests.NewRandomMigration(vmi.Name, vmi.Namespace)
+				migration = tests.RunMigrationAndExpectCompletion(virtClient, migration, tests.MigrationWaitTime)
+
+				tests.ConfirmVMIPostMigration(virtClient, vmi, migration)
+
+				By("checking if the metrics are still updated after the migration")
+				Eventually(func() error {
+					_, err := getDownwardMetricsVirtio(vmi)
+					return err
+				}, 20*time.Second, 1*time.Second).ShouldNot(HaveOccurred())
+				metrics, err := getDownwardMetricsVirtio(vmi)
+				Expect(err).ToNot(HaveOccurred())
+				timestamp := getTimeFromMetrics(metrics)
+				Eventually(func() int {
+					metrics, err := getDownwardMetricsVirtio(vmi)
 					Expect(err).ToNot(HaveOccurred())
 					return getTimeFromMetrics(metrics)
 				}, 10*time.Second, 1*time.Second).ShouldNot(Equal(timestamp))
