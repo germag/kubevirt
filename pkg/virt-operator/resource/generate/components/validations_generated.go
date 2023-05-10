@@ -5194,6 +5194,10 @@ var CRDsValidation map[string]string = map[string]string{
                             - name
                             type: object
                           type: array
+                        downwardMetrics:
+                          description: DownwardMetrics creates a virtio serials for
+                            exposing the downward metrics to the vmi.
+                          type: object
                         filesystems:
                           description: Filesystems describes filesystem which is connected
                             to the vmi.
@@ -9488,6 +9492,10 @@ var CRDsValidation map[string]string = map[string]string{
                     - name
                     type: object
                   type: array
+                downwardMetrics:
+                  description: DownwardMetrics creates a virtio serials for exposing
+                    the downward metrics to the vmi.
+                  type: object
                 filesystems:
                   description: Filesystems describes filesystem which is connected
                     to the vmi.
@@ -12008,6 +12016,10 @@ var CRDsValidation map[string]string = map[string]string{
                     - name
                     type: object
                   type: array
+                downwardMetrics:
+                  description: DownwardMetrics creates a virtio serials for exposing
+                    the downward metrics to the vmi.
+                  type: object
                 filesystems:
                   description: Filesystems describes filesystem which is connected
                     to the vmi.
@@ -14113,6 +14125,10 @@ var CRDsValidation map[string]string = map[string]string{
                             - name
                             type: object
                           type: array
+                        downwardMetrics:
+                          description: DownwardMetrics creates a virtio serials for
+                            exposing the downward metrics to the vmi.
+                          type: object
                         filesystems:
                           description: Filesystems describes filesystem which is connected
                             to the vmi.
@@ -18090,6 +18106,10 @@ var CRDsValidation map[string]string = map[string]string{
                                     - name
                                     type: object
                                   type: array
+                                downwardMetrics:
+                                  description: DownwardMetrics creates a virtio serials
+                                    for exposing the downward metrics to the vmi.
+                                  type: object
                                 filesystems:
                                   description: Filesystems describes filesystem which
                                     is connected to the vmi.
@@ -22807,6 +22827,11 @@ var CRDsValidation map[string]string = map[string]string{
                                         - name
                                         type: object
                                       type: array
+                                    downwardMetrics:
+                                      description: DownwardMetrics creates a virtio
+                                        serials for exposing the downward metrics
+                                        to the vmi.
+                                      type: object
                                     filesystems:
                                       description: Filesystems describes filesystem
                                         which is connected to the vmi.
