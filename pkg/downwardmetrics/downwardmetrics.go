@@ -26,6 +26,10 @@ func CreateDownwardMetricDisk(vmi *v1.VirtualMachineInstance) error {
 	return nil
 }
 
+func ContainerChannelSocketPath(pid int) string {
+	return filepath.Join("/proc", strconv.Itoa(pid), "/root", DownwardMetricsChannelSocket)
+}
+
 func FormatDownwardMetricPath(pid int) string {
 	return filepath.Join("/proc", strconv.Itoa(pid), "/root", config.DownwardMetricDisk)
 }
