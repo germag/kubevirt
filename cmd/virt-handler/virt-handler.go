@@ -22,8 +22,12 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
+	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/watch"
 	"net/http"
 	"os"
 	"os/signal"
@@ -397,7 +401,9 @@ func (app *virtHandlerApp) Run() {
 		panic(fmt.Errorf("failed to set up the downwardMetrics collector: %v", err))
 	}
 
-	RunDownwardMetricsServers(context.Background(), app.HostOverride, vmiSourceInformer, podIsolationDetector)
+	if err := RunDownwardMetricsServers(context.Background(), app.virtCli, app.HostOverride, vmiSourceInformer, podIsolationDetector); err != nil {
+		panic(fmt.Errorf("failed to set up the downwardMetrics server: %v", err))
+	}
 
 	go app.clientcertmanager.Start()
 	go app.servercertmanager.Start()
@@ -738,47 +744,58 @@ func copy(sourceFile string, targetFile string) error {
 	return nil
 }
 
-func RunDownwardMetricsServers(context context.Context, nodeName string, vmiInformer cache.SharedIndexInformer, isolation isolation.PodIsolationDetector) {
+func RunDownwardMetricsServers(context context.Context, virtCli kubecli.KubevirtClient, nodeName string, vmiInformer cache.SharedIndexInformer, isolation isolation.PodIsolationDetector) error {
+	labelSelector, err := labels.Parse(fmt.Sprintf(v1.NodeNameLabel+" in (%s)", nodeName))
+	if err != nil {
+		return errors.New("failed to parse host label")
+	}
+
+	opts := metav1.ListOptions{}
+	opts.FieldSelector = fields.Everything().String()
+	opts.LabelSelector = labelSelector.String()
+
+	watcher, err := virtCli.VirtualMachineInstance("").Watch(context, opts)
+	if err != nil {
+		return errors.New("failed to get VMi watcher")
+	}
+
 	go func() {
 		servedVmis := make(map[string]struct{})
 
-		ticker := time.NewTicker(1 * time.Second)
 		for {
 			select {
-			case <-ticker.C:
-				cachedObjs := vmiInformer.GetIndexer().List()
-				if len(cachedObjs) == 0 {
-					log.Log.V(4).Infof("No VMIs detected")
+			case event := <-watcher.ResultChan():
+				vmi := event.Object.(*v1.VirtualMachineInstance)
+				if event.Type != watch.Added {
 					continue
 				}
 
-				for _, obj := range cachedObjs {
-					vmi := obj.(*v1.VirtualMachineInstance)
-					launcherSocketPath, err := cmdclient.FindSocketOnHost(vmi)
-					if err != nil {
-						// nothing to scrape...
-						// this means there's no socket or the socket
-						// is currently unreachable for this vmi.
-						continue
-					}
-					_, ok := servedVmis[launcherSocketPath]
-					if ok {
-						continue
-					}
+				if vmi.Spec.Domain.Devices.DownwardMetrics == nil {
+					continue
+				}
 
-					res, err := isolation.Detect(vmi)
-					if err != nil {
-						log.Log.Reason(err).Error("failed to detect root directory of the vmi pod")
-						return
-					}
+				launcherSocketPath, err := cmdclient.FindSocketOnHost(vmi)
+				if err != nil {
+					continue // nothing to report
+				}
 
-					servedVmis[launcherSocketPath] = struct{}{}
-					channelPath := downwardmetricspkg.ContainerChannelSocketPath(res.Pid())
-					virtioserial.RunDownwardMetricsVirtioServer(context, nodeName, channelPath, launcherSocketPath)
-					if err != nil {
-						log.Log.Reason(err).Error("failed to start the DownwardMetrics server")
-						return
-					}
+				_, ok := servedVmis[launcherSocketPath]
+				if ok {
+					continue // VMI already with server
+				}
+
+				res, err := isolation.Detect(vmi)
+				if err != nil {
+					log.Log.Reason(err).Error("failed to detect root directory of the vmi pod")
+					return
+				}
+
+				servedVmis[launcherSocketPath] = struct{}{}
+				channelPath := downwardmetricspkg.ContainerChannelSocketPath(res.Pid())
+				virtioserial.RunDownwardMetricsVirtioServer(context, nodeName, channelPath, launcherSocketPath)
+				if err != nil {
+					log.Log.Reason(err).Error("failed to start the DownwardMetrics server")
+					return
 				}
 
 			case <-context.Done():
@@ -786,4 +803,6 @@ func RunDownwardMetricsServers(context context.Context, nodeName string, vmiInfo
 			}
 		}
 	}()
+
+	return nil
 }
