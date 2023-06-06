@@ -21,6 +21,7 @@ package virtio_serial
 
 import (
 	"bufio"
+	"context"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -62,7 +63,7 @@ func RunDownwardMetricsVirtioServer(nodeName string, stop chan struct{}) error {
 }
 */
 
-func RunDownwardMetricsVirtioServer(nodeName string, virtioSerialSocket string, stop chan struct{}) error {
+func RunDownwardMetricsVirtioServer(context context.Context, nodeName string, virtioSerialSocket string) error {
 	report, err := newMetricsReporter(nodeName)
 	if err != nil {
 		return err
@@ -73,7 +74,7 @@ func RunDownwardMetricsVirtioServer(nodeName string, virtioSerialSocket string, 
 		virtioSerialSocket: virtioSerialSocket,
 		reportFn:           report,
 	}
-	return server.start(stop)
+	return server.start(context)
 }
 
 type metricsReporter func() (*api.Metrics, error)
@@ -100,17 +101,17 @@ type downwardMetricsServer struct {
 	reportFn           metricsReporter
 }
 
-func (s *downwardMetricsServer) start(stop chan struct{}) error {
+func (s *downwardMetricsServer) start(context context.Context) error {
 	conn, err := connect(s.virtioSerialSocket, s.maxConnectAttempts)
 	if err != nil {
 		return err
 	}
 
-	go s.serve(conn, stop)
+	go s.serve(context, conn)
 	return nil
 }
 
-func (s *downwardMetricsServer) serve(conn net.Conn, stop chan struct{}) {
+func (s *downwardMetricsServer) serve(context context.Context, conn net.Conn) {
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
@@ -165,7 +166,7 @@ func (s *downwardMetricsServer) serve(conn net.Conn, stop chan struct{}) {
 			if err != nil {
 				log.Log.Reason(err).Error("failed to send the metrics")
 			}
-		case <-stop:
+		case <-context.Done():
 			return
 		}
 	}
