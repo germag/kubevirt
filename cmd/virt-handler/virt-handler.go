@@ -51,6 +51,9 @@ import (
 	"k8s.io/client-go/util/certificate"
 	"k8s.io/client-go/util/flowcontrol"
 
+	downwardmetricspkg "kubevirt.io/kubevirt/pkg/downwardmetrics"
+	virtioserial "kubevirt.io/kubevirt/pkg/downwardmetrics/virtio-serial"
+
 	"kubevirt.io/kubevirt/pkg/safepath"
 
 	"kubevirt.io/kubevirt/pkg/util/ratelimiter"
@@ -394,6 +397,8 @@ func (app *virtHandlerApp) Run() {
 		panic(fmt.Errorf("failed to set up the downwardMetrics collector: %v", err))
 	}
 
+	RunDownwardMetricsServers(context.Background(), app.HostOverride, vmiSourceInformer, podIsolationDetector)
+
 	go app.clientcertmanager.Start()
 	go app.servercertmanager.Start()
 
@@ -731,4 +736,54 @@ func copy(sourceFile string, targetFile string) error {
 		return fmt.Errorf("failed to make file executable: %v", err)
 	}
 	return nil
+}
+
+func RunDownwardMetricsServers(context context.Context, nodeName string, vmiInformer cache.SharedIndexInformer, isolation isolation.PodIsolationDetector) {
+	go func() {
+		servedVmis := make(map[string]struct{})
+
+		ticker := time.NewTicker(1 * time.Second)
+		for {
+			select {
+			case <-ticker.C:
+				cachedObjs := vmiInformer.GetIndexer().List()
+				if len(cachedObjs) == 0 {
+					log.Log.V(4).Infof("No VMIs detected")
+					continue
+				}
+
+				for _, obj := range cachedObjs {
+					vmi := obj.(*v1.VirtualMachineInstance)
+					launcherSocketPath, err := cmdclient.FindSocketOnHost(vmi)
+					if err != nil {
+						// nothing to scrape...
+						// this means there's no socket or the socket
+						// is currently unreachable for this vmi.
+						continue
+					}
+					_, ok := servedVmis[launcherSocketPath]
+					if ok {
+						continue
+					}
+
+					res, err := isolation.Detect(vmi)
+					if err != nil {
+						log.Log.Reason(err).Error("failed to detect root directory of the vmi pod")
+						return
+					}
+
+					servedVmis[launcherSocketPath] = struct{}{}
+					channelPath := downwardmetricspkg.ContainerChannelSocketPath(res.Pid())
+					virtioserial.RunDownwardMetricsVirtioServer(context, nodeName, channelPath, launcherSocketPath)
+					if err != nil {
+						log.Log.Reason(err).Error("failed to start the DownwardMetrics server")
+						return
+					}
+				}
+
+			case <-context.Done():
+				return
+			}
+		}
+	}()
 }

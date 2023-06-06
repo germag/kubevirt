@@ -63,8 +63,8 @@ func RunDownwardMetricsVirtioServer(nodeName string, stop chan struct{}) error {
 }
 */
 
-func RunDownwardMetricsVirtioServer(context context.Context, nodeName string, virtioSerialSocket string) error {
-	report, err := newMetricsReporter(nodeName)
+func RunDownwardMetricsVirtioServer(context context.Context, nodeName, virtioSerialSocket, launcherSocketPath string) error {
+	report, err := newMetricsReporter(nodeName, launcherSocketPath)
 	if err != nil {
 		return err
 	}
@@ -79,8 +79,8 @@ func RunDownwardMetricsVirtioServer(context context.Context, nodeName string, vi
 
 type metricsReporter func() (*api.Metrics, error)
 
-func newMetricsReporter(nodeName string) (metricsReporter, error) {
-	exists, err := diskutils.FileExists(standardLauncherSocketPath)
+func newMetricsReporter(nodeName, launcherSocketPath string) (metricsReporter, error) {
+	exists, err := diskutils.FileExists(launcherSocketPath)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func newMetricsReporter(nodeName string) (metricsReporter, error) {
 	scraper := metricsScraper.NewReporter(nodeName)
 
 	return func() (*api.Metrics, error) {
-		return scraper.Report(standardLauncherSocketPath)
+		return scraper.Report(launcherSocketPath)
 	}, nil
 }
 
