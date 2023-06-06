@@ -34,7 +34,6 @@ import (
 
 	"kubevirt.io/client-go/log"
 
-	"kubevirt.io/kubevirt/pkg/downwardmetrics"
 	"kubevirt.io/kubevirt/pkg/downwardmetrics/vhostmd/api"
 	diskutils "kubevirt.io/kubevirt/pkg/ephemeral-disk-utils"
 	metricsScraper "kubevirt.io/kubevirt/pkg/monitoring/domainstats/downwardmetrics"
@@ -47,6 +46,7 @@ const (
 	emptyMetrics               = "<metrics><!-- host metrics not available --><!-- VM metrics not available --></metrics>"
 )
 
+/*
 func RunDownwardMetricsVirtioServer(nodeName string, stop chan struct{}) error {
 	report, err := newMetricsReporter(nodeName)
 	if err != nil {
@@ -56,6 +56,21 @@ func RunDownwardMetricsVirtioServer(nodeName string, stop chan struct{}) error {
 	server := downwardMetricsServer{
 		maxConnectAttempts: maxConnectAttempts,
 		virtioSerialSocket: downwardmetrics.DownwardMetricsChannelSocket,
+		reportFn:           report,
+	}
+	return server.start(stop)
+}
+*/
+
+func RunDownwardMetricsVirtioServer(nodeName string, virtioSerialSocket string, stop chan struct{}) error {
+	report, err := newMetricsReporter(nodeName)
+	if err != nil {
+		return err
+	}
+
+	server := downwardMetricsServer{
+		maxConnectAttempts: maxConnectAttempts,
+		virtioSerialSocket: virtioSerialSocket,
 		reportFn:           report,
 	}
 	return server.start(stop)
