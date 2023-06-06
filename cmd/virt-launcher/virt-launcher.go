@@ -20,7 +20,6 @@
 package main
 
 import (
-	"errors"
 	goflag "flag"
 	"fmt"
 	"os"
@@ -44,7 +43,6 @@ import (
 	"kubevirt.io/kubevirt/pkg/config"
 	containerdisk "kubevirt.io/kubevirt/pkg/container-disk"
 	"kubevirt.io/kubevirt/pkg/downwardmetrics"
-	virtioserial "kubevirt.io/kubevirt/pkg/downwardmetrics/virtio-serial"
 	ephemeraldisk "kubevirt.io/kubevirt/pkg/ephemeral-disk"
 	"kubevirt.io/kubevirt/pkg/hooks"
 	hotplugdisk "kubevirt.io/kubevirt/pkg/hotplug-disk"
@@ -333,17 +331,19 @@ func waitForFinalNotify(deleteNotificationSent chan watch.Event,
 }
 
 func runDownwardMetricsVirtioServer(stop chan struct{}) error {
-	if _, ok := os.LookupEnv("VIRT_LAUNCHER_DOWNWARDMETRICS_SERVER"); ok {
-		nodeName, ok := os.LookupEnv("NODE_NAME")
-		if !ok {
-			return errors.New("NODE_NAME environment variable not found")
-		}
+	/*
+		if _, ok := os.LookupEnv("VIRT_LAUNCHER_DOWNWARDMETRICS_SERVER"); ok {
+			nodeName, ok := os.LookupEnv("NODE_NAME")
+			if !ok {
+				return errors.New("NODE_NAME environment variable not found")
+			}
 
-		err := virtioserial.RunDownwardMetricsVirtioServer(nodeName, stop)
-		if err != nil {
-			return err
+			err := virtioserial.RunDownwardMetricsVirtioServer(nodeName, stop)
+			if err != nil {
+				return err
+			}
 		}
-	}
+	*/
 	return nil
 }
 
