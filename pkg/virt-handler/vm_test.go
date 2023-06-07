@@ -205,7 +205,8 @@ var _ = Describe("VirtualMachineInstance", func() {
 		mockHotplugVolumeMounter = hotplug_volume.NewMockVolumeMounter(ctrl)
 
 		migrationProxy := migrationproxy.NewMigrationProxyManager(tlsConfig, tlsConfig, config)
-		controller, _ = NewController(recorder,
+		controller, _ = NewController(context.Background(),
+			recorder,
 			virtClient,
 			host,
 			podIpAddress,
@@ -223,6 +224,7 @@ var _ = Describe("VirtualMachineInstance", func() {
 			migrationProxy,
 			nil,
 			"",
+			nil,
 		)
 		controller.hotplugVolumeMounter = mockHotplugVolumeMounter
 		controller.virtLauncherFSRunDirPattern = filepath.Join(shareDir, "%d")

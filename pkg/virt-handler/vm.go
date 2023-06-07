@@ -83,6 +83,8 @@ import (
 
 	containerdisk "kubevirt.io/kubevirt/pkg/container-disk"
 	"kubevirt.io/kubevirt/pkg/controller"
+	downwardmetricspkg "kubevirt.io/kubevirt/pkg/downwardmetrics"
+	virtioserial "kubevirt.io/kubevirt/pkg/downwardmetrics/virtio-serial"
 	diskutils "kubevirt.io/kubevirt/pkg/ephemeral-disk-utils"
 	"kubevirt.io/kubevirt/pkg/executor"
 	hostdisk "kubevirt.io/kubevirt/pkg/host-disk"
@@ -173,7 +175,7 @@ var PasswordRelatedGuestAgentCommands = []string{
 	"guest-set-user-password",
 }
 
-func NewController(
+func NewController(ctx context.Context,
 	recorder record.EventRecorder,
 	clientset kubecli.KubevirtClient,
 	host string,
@@ -192,6 +194,7 @@ func NewController(
 	migrationProxy migrationproxy.ProxyManager,
 	capabilities *nodelabellerapi.Capabilities,
 	hostCpuModel string,
+	startedServer map[string]struct{},
 ) (*VirtualMachineController, error) {
 
 	queue := workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "virt-handler-vm")
@@ -253,6 +256,27 @@ func NewController(
 		AddFunc:    c.addFunc,
 		DeleteFunc: c.deleteFunc,
 		UpdateFunc: c.updateFunc,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = vmiSourceInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		DeleteFunc: func(obj interface{}) {
+			vmi, ok := obj.(*v1.VirtualMachineInstance)
+			if !ok {
+				log.Log.Errorf("failed to convert to a v1.VirtualMachineInstance obj")
+			}
+			stopVirtioServer(vmi, startedServer)
+		},
+		UpdateFunc: func(_, obj interface{}) {
+			vmi, ok := obj.(*v1.VirtualMachineInstance)
+			if !ok {
+				log.Log.Errorf("failed to convert to a v1.VirtualMachineInstance obj")
+			}
+			err := startVirtioSerialServer(ctx, vmi, virtShareDir, startedServer, host)
+			log.Log.Reason(err).Errorf("failed to set up the virtio-serial downwardMetrics server")
+		},
 	})
 	if err != nil {
 		return nil, err
@@ -3229,6 +3253,52 @@ func (d *VirtualMachineController) updateDomainFunc(old, new interface{}) {
 	if err == nil {
 		d.Queue.Add(key)
 	}
+}
+
+func startVirtioSerialServer(ctx context.Context, vmi *v1.VirtualMachineInstance, virtShareDir string, startedServer map[string]struct{}, nodeName string) error {
+	isolation := isolation.NewSocketBasedIsolationDetector(virtShareDir)
+	if vmi.Spec.Domain.Devices.DownwardMetrics == nil {
+		return nil
+	}
+
+	if !vmi.IsRunning() {
+		return nil
+	}
+
+	domainName := fmt.Sprintf("%s/%s", vmi.GetNamespace(), vmi.GetName())
+	_, alreadyStarted := startedServer[domainName]
+
+	if alreadyStarted {
+		return nil
+	}
+
+	launcherSocketPath, err := cmdclient.FindSocketOnHost(vmi)
+	if err != nil {
+		return fmt.Errorf("failed to get the launcher socket for VMI [%s], error: %v", vmi.GetName(), err)
+	}
+
+	res, err := isolation.Detect(vmi)
+	if err != nil {
+		return fmt.Errorf("failed to detect root directory of the vmi pod for VMI [%s], error: %v", vmi.GetName(), err)
+	}
+
+	channelPath := downwardmetricspkg.ChannelSocketPathOnHost(res.Pid())
+	err = virtioserial.RunDownwardMetricsVirtioServer(ctx, nodeName, channelPath, launcherSocketPath)
+	if err != nil {
+		return fmt.Errorf("failed to start the DownwardMetrics server for VMI [%s], erro: %v", vmi.GetName(), err)
+	}
+
+	startedServer[domainName] = struct{}{}
+	return nil
+}
+
+func stopVirtioServer(vmi *v1.VirtualMachineInstance, startedServer map[string]struct{}) {
+	if vmi.Spec.Domain.Devices.DownwardMetrics == nil {
+		return
+	}
+	domainName := fmt.Sprintf("%s/%s", vmi.GetNamespace(), vmi.GetName())
+	delete(startedServer, domainName)
+
 }
 
 func (d *VirtualMachineController) finalizeMigration(vmi *v1.VirtualMachineInstance) error {

@@ -361,7 +361,13 @@ func (app *virtHandlerApp) Run() {
 		return
 	}
 
+	var cancelCtx context.CancelFunc
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	defer cancelCtx()
+	startedServer := make(map[string]struct{})
+
 	vmController, err := virthandler.NewController(
+		ctx,
 		recorder,
 		app.virtCli,
 		app.HostOverride,
@@ -380,6 +386,7 @@ func (app *virtHandlerApp) Run() {
 		migrationProxy,
 		capabilities,
 		hostCpuModel,
+		startedServer,
 	)
 	if err != nil {
 		panic(err)
