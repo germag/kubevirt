@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/rand"
+	"k8s.io/utils/ptr"
 
 	v1 "kubevirt.io/api/core/v1"
 
@@ -147,6 +148,16 @@ func NewPVC(name, size, storageClass string) *k8sv1.PersistentVolumeClaim {
 			StorageClassName: &storageClass,
 		},
 	}
+}
+
+func CreateRWXFSPVC(name, namespace, size string) *k8sv1.PersistentVolumeClaim {
+	sc, _ := GetRWXFileSystemStorageClass()
+	pvc := NewPVC(name, size, sc)
+	pvc.Spec.VolumeMode = ptr.To(k8sv1.PersistentVolumeFilesystem)
+	pvc.Spec.AccessModes = []k8sv1.PersistentVolumeAccessMode{k8sv1.ReadWriteMany}
+
+	return createPVC(pvc, namespace)
+
 }
 
 func createPVC(pvc *k8sv1.PersistentVolumeClaim, namespace string) *k8sv1.PersistentVolumeClaim {
